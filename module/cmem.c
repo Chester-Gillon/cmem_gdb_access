@@ -135,30 +135,8 @@ uint64_t host_buf_alloc_ptr;
 uint64_t host_dyn_buf_alloc_ptr;
 #endif
 
-static int custom_generic_access_phys(struct vm_area_struct *vma, unsigned long addr,
-            void *buf, int len, int write)
-{
-    void __iomem *maddr;
-    //int offset = (addr & (PAGE_SIZE-1)) - vma->vm_start;
-    int offset = (addr) - vma->vm_start;
-
-    maddr = phys_to_virt((unsigned long long)vma->vm_private_data);
-    if (write)
-        memcpy_toio(maddr + offset, buf, len);
-    else
-        memcpy_fromio(buf, maddr + offset, len);
-
-    return len;
-}
-
-static inline int custom_vma_access(struct vm_area_struct *vma, unsigned long addr,
-          void *buf, int len, int write)
-{
-    return custom_generic_access_phys(vma, addr, buf, len, write);
-}
-
 static struct vm_operations_struct custom_vm_ops = {
-    .access = custom_vma_access,
+    .access = generic_access_phys,
 };
 /**
 * cmem_ioctl() - Application interface for cmem module
@@ -474,7 +452,6 @@ int cmem_mmap(struct file *filp, struct vm_area_struct *vma)
 //  vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
   vma->vm_ops = &custom_vm_ops;
-  vma->vm_private_data = (void *) addr;
   ret = remap_pfn_range(vma, vma->vm_start,
           vma->vm_pgoff,
           sz, vma->vm_page_prot);

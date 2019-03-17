@@ -33,3 +33,6 @@
 *~
 Debug
 Release
+RemoteSystemsTempFiles
+.settings
+.cache.mk
