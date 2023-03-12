@@ -516,18 +516,22 @@ static void cmem_err_cleanup(int ti667_dev_temp_num)
 static int cmem_boot_param_cb (char *param, char *val, const char *unused, void *arg)
 {
     unsigned long long region_size, region_start; 
-    char *current_val = val;
     reserved_mem_area_t *mem_area;
     
     if (strcmp (param, "memmap") == 0)
     {
-        while (*current_val != '\0')
+        while (val != NULL)
         {
-            region_size = memparse (current_val, &current_val);
-            if (*current_val == '$')
+            char *seperator = strchr (val, ',');
+            if (seperator != NULL)
             {
-                current_val++;
-                region_start = memparse (current_val, &current_val);
+                *seperator++ = '\0';
+            }
+
+            region_size = memparse (val, &val);
+            if (*val == '$')
+            {
+                region_start = memparse (val + 1, &val);
                 
                 switch (num_memmap_reserved_areas)
                 {
@@ -567,17 +571,8 @@ static int cmem_boot_param_cb (char *param, char *val, const char *unused, void 
                         num_memmap_reserved_areas++;
                     }
                 }
-
-                /* Advance to next parameter */
-                if (*current_val == ',')
-                {
-                    current_val++;
-                }
-                else
-                {
-                    break;
-                }
             }
+            val = seperator;
         }
     }
     
