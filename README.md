@@ -18,5 +18,4 @@ a string into each buffer. By viewing the buffer_text variable in the debugger, 
  of the form <Address 0x7ffff7ff8000 out of bounds> when attempted to view the buffer_test variable.
 
 TODO:
-1) The module/cmemcfg.h has been configured for a fixed reserved address range, corresponding to memmap=528m$7672m on the Linux command line.
-Rather than compile in a hard-coded reserved mapping, it would be better to make the cmem driver parse the command line and use the memory which has been reserved.
+1) The module code which obtains the reserved memory regions from the memmap Kernel command line uses kallsyms_lookup_name() to find private Kernel symbols by name. Is their as way to achieve the same functionality but only using exported symbols?

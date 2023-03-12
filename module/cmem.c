@@ -48,8 +48,9 @@
 #include <linux/dmaengine.h>
 #include <linux/time.h>
 #include <linux/slab.h>
+#include <linux/kallsyms.h>
 
-#include "cmemcfg.h"
+#include <asm/e820/api.h>
 
 #ifdef CMEM_CFG_USE_DMA_COHERENT_ALLOC
 #define PCI_ALLOC
@@ -128,6 +129,7 @@ typedef struct _reserved_mem_area_t {
    size_t size;
 } reserved_mem_area_t;
 
+static int num_memmap_reserved_areas;
 static reserved_mem_area_t persistent_mem_area;
 static reserved_mem_area_t dynamic_mem_area;
  
@@ -498,6 +500,145 @@ static void cmem_err_cleanup(int ti667_dev_temp_num)
 #endif
 }
 #endif
+
+
+/**
+ * @details Callback for parse_args() which extracts the value of reserved memory regions from memmap arguments.
+ * The reserved memory regions are validated, and if valid used to update the reserved memory areas.
+ * The first 2 memmap entries for reserved memory are used for dynamic_mem_area and persistent_mem_area.
+ * Any additional reserved memory areas are ignored.
+ * @param[in] param The name of the parameter
+ * @param[in] val The value of the parameter
+ * @param[in] unused Not used
+ * @param[in] arg Not used
+ * @return Returns zero allow the parsing of parameters to continue
+ */
+static int cmem_boot_param_cb (char *param, char *val, const char *unused, void *arg)
+{
+    unsigned long long region_size, region_start; 
+    char *current_val = val;
+    reserved_mem_area_t *mem_area;
+    
+    if (strcmp (param, "memmap") == 0)
+    {
+        while (*current_val != '\0')
+        {
+            region_size = memparse (current_val, &current_val);
+            if (*current_val == '$')
+            {
+                current_val++;
+                region_start = memparse (current_val, &current_val);
+                
+                switch (num_memmap_reserved_areas)
+                {
+                case 0: 
+                    mem_area = &dynamic_mem_area;
+                    break;
+                    
+                case 1:
+                    mem_area = &persistent_mem_area;
+                    break;
+                    
+                default:
+                    mem_area = NULL;
+                    break;
+                }
+                
+                if (mem_area != NULL)
+                {
+                    /* Sanity check that the memmap region extracted from the Kernel parameters is marked as RAM
+                     * by the firmware and reserved by Linux. I.e. to only use real RAM not in use by Linux.
+                     * @todo Uses the mapped <any> functions which are exported, but for a robust check should
+                     *       check the entire region is of the specified type. */
+                    if (!e820__mapped_raw_any (region_start, region_start + region_size, E820_TYPE_RAM))
+                    {
+                        pr_info(CMEM_DRVNAME " Ignored memmap start 0x%llx size 0x%llx not marked as RAM by firmware\n",
+                                region_size, region_size);
+                    }
+                    else if (!e820__mapped_any (region_start, region_start + region_size, E820_TYPE_RESERVED))
+                    {
+                        pr_info(CMEM_DRVNAME " Ignored memmap start 0x%llx size 0x%llx not marked as reserved by Linux\n",
+                                region_size, region_size);
+                    }
+                    else
+                    {
+                        mem_area->start_addr = region_start;
+                        mem_area->size = region_size;
+                        num_memmap_reserved_areas++;
+                    }
+                }
+
+                /* Advance to next parameter */
+                if (*current_val == ',')
+                {
+                    current_val++;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+    }
+    
+    return 0;
+}
+
+/**
+ * @details Get the memory areas to be used for contiguous memory allocations from the reserved memory regions
+ *          specified in the memmap arguments in the Kernel parameters.
+ * @returns Returns zero if the memory areas have been identified and the cmem driver can be loaded.
+ *          Any other value indicates an error. 
+ */
+static int get_mem_areas_from_memmap_params (void)
+{
+    const char **lookup_saved_command_line;
+    char *cmdline;
+
+    char *(*parse_args_lookup)(const char *doing,
+             char *args,
+             const struct kernel_param *params,
+             unsigned num,
+             s16 min_level,
+             s16 max_level,
+             void *arg,
+             int (*unknown)(char *param, char *val,
+                    const char *doing, void *arg));
+
+    /* Can't find an exported way of obtaining the Kernel command line, so lookup the saved_command_line variable */
+    lookup_saved_command_line = (const char **) kallsyms_lookup_name ("saved_command_line");
+    if ((lookup_saved_command_line == NULL) || ((*lookup_saved_command_line) == NULL))
+    {
+        pr_info(CMEM_DRVNAME " Failed to lookup saved_command_line\n");
+        return -EINVAL;
+    }
+    
+    /* Lookup the function to parse arguments, to re-use the parsing code which handles escaping of parameters */
+    parse_args_lookup = (void *) kallsyms_lookup_name ("parse_args");
+    if ((parse_args_lookup == NULL) || ((*parse_args_lookup) == NULL))
+    {
+        pr_info(CMEM_DRVNAME " Failed to lookup parse_args\n");
+        return -EINVAL;
+    }
+    
+    cmdline = kstrdup (*lookup_saved_command_line, GFP_KERNEL);
+    parse_args_lookup("cmem params", cmdline, NULL, 0, 0, 0, NULL, &cmem_boot_param_cb);
+    kfree (cmdline);
+    
+    if( persistent_mem_area.size == 0)
+    {
+        pr_info(CMEM_DRVNAME " Request mem region failed: persistent \n");
+        return -EINVAL;
+    }
+    if (dynamic_mem_area.size == 0)
+    {
+        pr_info(CMEM_DRVNAME " Request mem region failed: dynamic \n");
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
 /**
 * cmem_init() - Initialize DMA Buffers device
 *
@@ -507,6 +648,12 @@ static void cmem_err_cleanup(int ti667_dev_temp_num)
 static int __init cmem_init(void)
 {
     int ret;
+
+    ret = get_mem_areas_from_memmap_params ();
+    if (ret)
+    {
+        return ret;
+    }
 
     ret = alloc_chrdev_region(&cmem_dev_id, 0, 1, CMEM_DRVNAME);
     if (ret) {
@@ -554,26 +701,21 @@ static int __init cmem_init(void)
       goto pci_error_cleanup ;
     }
 #else
-    persistent_mem_area.size = RESERVED_CONSISTENT_MEM_SIZE;
-    persistent_mem_area.start_addr = RESERVED_CONSISTENT_MEM_START_ADDR;
-   
     if(persistent_mem_area.start_addr ==0)
     {
-      pr_info(CMEM_DRVNAME "Request mem region failed: persistent \n");
+      pr_info(CMEM_DRVNAME " Request mem region failed: persistent \n");
       goto persistent_reserve_fail_cleanup;
     }
-    pr_info(CMEM_DRVNAME "Memory start Addr : %llu Size: %lu \n",
-      persistent_mem_area.start_addr, (unsigned long)persistent_mem_area.size);
-    dynamic_mem_area.size = RESERVED_DYNAMIC_MEM_SIZE;
+    pr_info(CMEM_DRVNAME " Memory start Addr : 0x%llx Size: 0x%zx \n",
+      persistent_mem_area.start_addr, persistent_mem_area.size);
     
-    dynamic_mem_area.start_addr = RESERVED_DYNAMIC_MEM_START_ADDR;
     if( dynamic_mem_area.start_addr== 0)
     {
-      pr_info(CMEM_DRVNAME "Request mem region failed: dynamic \n");
+      pr_info(CMEM_DRVNAME " Request mem region failed: dynamic \n");
       goto dynamic_reserve_fail_cleanup;
     }
-    pr_info(CMEM_DRVNAME "Dynamic Memory start Addr : %llu Size: %lu\n",dynamic_mem_area.start_addr,
-      (unsigned long)dynamic_mem_area.size);
+    pr_info(CMEM_DRVNAME " Dynamic Memory start Addr : 0x%llx Size: 0x%zx\n",dynamic_mem_area.start_addr,
+      dynamic_mem_area.size);
     host_buf_alloc_ptr =  (persistent_mem_area.start_addr);
     host_dyn_buf_alloc_ptr = (dynamic_mem_area.start_addr);
 #endif
