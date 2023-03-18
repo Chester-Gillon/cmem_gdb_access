@@ -170,10 +170,10 @@ int32_t cmem_drv_alloc(uint32_t num_of_buffers, uint32_t size_of_buffer, uint16_
  */
 int32_t cmem_drv_free(uint32_t num_of_buffers, uint16_t host_buf_type,  cmem_host_buf_desc_t buf_desc[])
 {
-  int i, j;
+  int i;
   
   {
-    int buf_index, ret_val;
+    int ret_val;
 
     cmem_ioctl.host_buf_info.num_buffers =num_of_buffers;
     cmem_ioctl.host_buf_info.type  =host_buf_type;
