@@ -18,5 +18,6 @@ a string into each buffer. By viewing the buffer_text variable in the debugger, 
  of the form <Address 0x7ffff7ff8000 out of bounds> when attempted to view the buffer_test variable.
 
 TODO:
-1) The module code which obtains the reserved memory regions from the memmap Kernel command line uses kallsyms_lookup_name() to find private Kernel symbols by name. Is their as way to achieve the same functionality but only using exported symbols?
-2) Tried running the test on two PCs with AlmaLinux 8.7 with a ``4.18.0-425.13.1.el8_7.x86_64`` Kernel, and using ``memmap=2G$4G,1M$6G`` as the Kernel parameter to specify the reserved addresses for the contiguous physical memory. The module loads successfully on both PCs. On the first PC ``cmem_test`` runs successfully, but on the second PC the PC hangs on the first ``ioctl (CMEM_IOCTL_ALLOC_HOST_BUFFERS)`` call. Once the PC has hung needs to be power-cycled.
+1) The module code which obtains the reserved memory regions from the memmap Kernel command line uses kallsyms_lookup_name() to find private Kernel symbols by name. Is there a way to achieve the same functionality but only using exported symbols? A more portable way could be to get the load script to find the reserved memory regions and pass as parameters to the module.
+2) The ``CMEM_IOCTL_GET_HOST_BUF_INFO`` operation doesn't have a way of passing the number of buffers to the user space code to allow the user space code to allocate a suitable sized ``buf_info`` array to receive the results. Also, the code doesn't copy the ``buf_info`` array back to user space.
+3) Since ``CMEM_IOCTL_FREE_HOST_BUFFERS`` frees all buffers this isn't suitable for access by multiple processes. Also, would locks be needed to make re-entrant?

@@ -153,8 +153,14 @@ long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     case  CMEM_IOCTL_ALLOC_HOST_BUFFERS:
     {
       int i;
+      cmem_ioctl_t cmem_ioctl_arg;
+      cmem_ioctl_host_buf_info_t *const host_buf_info = &cmem_ioctl_arg.host_buf_info;
 
-      cmem_ioctl_host_buf_info_t *host_buf_info = &(((cmem_ioctl_t *) arg)->host_buf_info);
+      if (copy_from_user (&cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (cmem_ioctl_arg)))
+      {
+        return -EFAULT;
+      }
+
       if(host_buf_info->type == 0) {
         /* Consistent buffer allocation */
         
@@ -321,6 +327,11 @@ long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	  cmem_dyn_host_buf_info->num_buffers++;
         }
       }
+
+      if (copy_to_user ((cmem_ioctl_t *) arg, &cmem_ioctl_arg, sizeof (cmem_ioctl_arg)))
+      {
+        return -EFAULT;
+      }
     }
     break;
 
@@ -343,7 +354,13 @@ long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     {
       /* TODO: Currently free clears off all buffers : 
               May need to provide dynamic alloc and free later*/
-      cmem_host_buf_info_t *host_buf_info = (cmem_host_buf_info_t *) arg;
+      cmem_ioctl_t cmem_ioctl_arg;
+      cmem_ioctl_host_buf_info_t *const host_buf_info = &cmem_ioctl_arg.host_buf_info;
+
+      if (copy_from_user (&cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (cmem_ioctl_arg)))
+      {
+        return -EFAULT;
+      }
       if(host_buf_info->type == 0) {
 #ifdef PCI_ALLOC 
         int i;
