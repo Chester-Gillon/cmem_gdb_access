@@ -574,12 +574,12 @@ static int cmem_boot_param_cb (char *param, char *val, const char *unused, void 
                     if (!e820__mapped_raw_any (region_start, region_start + region_size, E820_TYPE_RAM))
                     {
                         pr_info(CMEM_DRVNAME " Ignored memmap start 0x%llx size 0x%llx not marked as RAM by firmware\n",
-                                region_size, region_size);
+                                region_start, region_size);
                     }
                     else if (!e820__mapped_any (region_start, region_start + region_size, E820_TYPE_RESERVED))
                     {
                         pr_info(CMEM_DRVNAME " Ignored memmap start 0x%llx size 0x%llx not marked as reserved by Linux\n",
-                                region_size, region_size);
+                                region_start, region_size);
                     }
                     else
                     {
