@@ -145,14 +145,14 @@ int32_t cmem_drv_alloc(uint32_t num_of_buffers, uint32_t size_of_buffer, uint16_
           PROT_READ | PROT_WRITE,
           MAP_SHARED,
           dev_desc, 
-          cmem_ioctl.host_buf_info.buf_info[i].dmaAddr);
+          (off_t) cmem_ioctl.host_buf_info.buf_info[i].dmaAddr);
 #ifdef CMEM_VERBOSE
        printf("Buff num %d: Phys addr : 0x%llx User Addr: 0x%lx \n", buf_index, (unsigned long long ) buf_desc[buf_index+i].physAddr,
          (size_t)buf_desc[buf_index+i].userAddr );
 #endif
         buf_desc[buf_index+i].length = cmem_ioctl.host_buf_info.buf_info[i].length;
       }
-      buf_index+=alloc_num_buffers;
+      buf_index += (int) alloc_num_buffers;
       remaining_num_buffers-=alloc_num_buffers;
     }
   }
