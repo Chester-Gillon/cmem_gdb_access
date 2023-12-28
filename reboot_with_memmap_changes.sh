@@ -16,6 +16,12 @@
 run_command()
 {
    "$@"
+   exit_status=$?
+   if [ ${exit_status} -ne 0 ]
+   then 
+       echo "Command failed with status ${exit_status}, may be caused by secure boot enabled"
+       exit ${exit_status}
+   fi
 }
 
 # Parse command line arguments
