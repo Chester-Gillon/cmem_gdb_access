@@ -44,7 +44,7 @@ typedef struct   _cmem_host_buf_desc_t {
     uint64_t physAddr;            /* physical address ; also visible in the
                                      pci address space from root complex*/
     uint8_t *userAddr;            /* Host user space Virtual address */
-    uint32_t length;              /* Length of host buffer */
+    size_t length;              /* Length of host buffer */
     void    *buffInfoHandle;      /* Handle to identify each buffer descriptor */
 } cmem_host_buf_desc_t;
 /**

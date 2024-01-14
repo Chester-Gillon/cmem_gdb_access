@@ -321,7 +321,7 @@ long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
           /* Keep a local copy of this in driver */
           cmem_dyn_host_buf_info->buf_info[cmem_dyn_host_buf_info->num_buffers] = host_buf_info->buf_info[i];
-          dev_info(cmem_dev, " Copied buffer %d, Base address: 0x%llx: Size 0x%x \n",
+          dev_info(cmem_dev, " Copied buffer %d, Base address: 0x%llx: Size 0x%zx \n",
              cmem_dyn_host_buf_info->num_buffers,  cmem_dyn_host_buf_info->buf_info[cmem_dyn_host_buf_info->num_buffers].dmaAddr, 
              cmem_dyn_host_buf_info->buf_info[cmem_dyn_host_buf_info->num_buffers].length);
 	  cmem_dyn_host_buf_info->num_buffers++;

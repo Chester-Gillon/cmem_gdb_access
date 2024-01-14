@@ -108,7 +108,7 @@ int32_t cmem_drv_close(void)
  *  @post 
  */
 
-int32_t cmem_drv_alloc(uint32_t num_of_buffers, uint32_t size_of_buffer, uint16_t host_buf_type,  cmem_host_buf_desc_t buf_desc[])
+int32_t cmem_drv_alloc(uint32_t num_of_buffers, size_t size_of_buffer, uint16_t host_buf_type,  cmem_host_buf_desc_t buf_desc[])
 {
   int i;
   
@@ -137,7 +137,7 @@ int32_t cmem_drv_alloc(uint32_t num_of_buffers, uint32_t size_of_buffer, uint16_
       for(i=0; i< alloc_num_buffers; i++) {
         buf_desc[buf_index+i].physAddr = cmem_ioctl.host_buf_info.buf_info[i].dmaAddr;
 #ifdef CMEM_VERBOSE
-        printf("Debug: mmap param length 0x%x, Addr: 0x%llx \n", cmem_ioctl.host_buf_info.buf_info[i].length,
+        printf("Debug: mmap param length 0x%zx, Addr: 0x%llx \n", cmem_ioctl.host_buf_info.buf_info[i].length,
           (unsigned long long) cmem_ioctl.host_buf_info.buf_info[i].dmaAddr);
 #endif
         buf_desc[buf_index+i].userAddr = mmap(0,

@@ -86,7 +86,7 @@ int32_t cmem_drv_close(void);
  *  @pre  
  *  @post 
  */
-int32_t cmem_drv_alloc(uint32_t num_of_buffers, uint32_t size_of_buffer, uint16_t type,  cmem_host_buf_desc_t buf_desc[]);
+int32_t cmem_drv_alloc(uint32_t num_of_buffers, size_t size_of_buffer, uint16_t type,  cmem_host_buf_desc_t buf_desc[]);
 /**
  *  @brief Function cmem_drv_free() Free contiguous dma host
  *         memory; 

@@ -61,7 +61,7 @@
 typedef struct   _cmem_host_buf_entry_t {
     uint64_t dmaAddr;                  /* PCIe address */
     uint8_t *virtAddr;                  /* Host Virtual address */
-    uint32_t length;           /* Length of host buffer */
+    size_t length;           /* Length of host buffer */
 } cmem_host_buf_entry_t;
 
 
