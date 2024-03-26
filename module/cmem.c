@@ -52,13 +52,6 @@
 
 #include <asm/e820/api.h>
 
-#ifdef CMEM_CFG_USE_DMA_COHERENT_ALLOC
-#define PCI_ALLOC
-#endif
-#ifdef PCI_ALLOC /* TODO: Need to remove dependance on PCI */
-#include <linux/pci.h>
-#endif
-
 #include "cmem.h"
 
 //#define DEBUG_ON
@@ -69,60 +62,11 @@ static int cmem_major;
 static int cmem_minor;
 
 struct device *cmem_dev;
-cmem_host_buf_info_t *cmem_pers_host_buf_info;
 cmem_host_buf_info_t *cmem_dyn_host_buf_info;
   
 
 static spinlock_t l_lock;
 static wait_queue_head_t l_read_wait;
-
-#ifdef PCI_ALLOC   /* TODO : temporarily keeping it here to get DMA buffer associated with device driver */
-struct pci_dev *ti667x_pci_dev[1];
-#define TI667X_PCI_VENDOR_ID               0x104c   /* TI */
-#define TI667X_PCI_DEVICE_ID               0xb005   /* C6678 */
-#define TI667X_PCIE_DRVNAME     "ti6678_pcie_ep"
-
-
-/**
-* ti667x_ep_find_device() - Look-up for available TI667X Endpoint
-*
-* Since we could even be running on another TI667X device acting as RC, we need
-* to skip it - this is done based on checking device class to be set as "PCI
-* Bridge" for RC as the RC driver does this setting during enumeration.
-*
-* Note: This checking needs to be updated if RC driver is changed to set (or
-* not to set) class differently.
-*/
-static int ti667x_ep_find_device(void)
-{
-    struct pci_dev *dev;
-
-    ti667x_pci_dev[0] = NULL;
-
-    dev = pci_get_device(TI667X_PCI_VENDOR_ID, TI667X_PCI_DEVICE_ID, NULL);
-    if (NULL != dev)
-    {
-
-        pr_info(TI667X_PCIE_DRVNAME ": Found TI667x PCIe EP @0x%p\n", dev);
-        while ((dev->class >> 8) == PCI_CLASS_BRIDGE_PCI)
-        {
-            pr_warning(TI667X_PCIE_DRVNAME ": skipping TI667x PCIe RC...\n");
-            dev = pci_get_device(TI667X_PCI_VENDOR_ID, TI667X_PCI_DEVICE_ID, dev);
-            if(NULL==dev) {
-              pr_info(TI667X_PCIE_DRVNAME ": No non bridge TI PCI device found @0x%p\n", dev);
-              return (-1);
-            }
-            continue;
-        }
-
-        ti667x_pci_dev[0] = dev;
-        return 0;
-    }
-
-    pr_info(TI667X_PCIE_DRVNAME ": No TI PCI device found @0x%p\n", dev);
-    return -1;
-}
-#else
 
 typedef struct _reserved_mem_area_t {
    uint64_t start_addr;
@@ -130,12 +74,10 @@ typedef struct _reserved_mem_area_t {
 } reserved_mem_area_t;
 
 static int num_memmap_reserved_areas;
-static reserved_mem_area_t persistent_mem_area;
 static reserved_mem_area_t dynamic_mem_area;
  
 uint64_t host_buf_alloc_ptr;
 uint64_t host_dyn_buf_alloc_ptr;
-#endif
 
 static struct vm_operations_struct custom_vm_ops = {
     .access = generic_access_phys,
@@ -147,300 +89,134 @@ static struct vm_operations_struct custom_vm_ops = {
 */
 long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
-  int ret = 0 ;
+    int ret = 0 ;
 
-  switch (cmd) {
+    switch (cmd) {
     case  CMEM_IOCTL_ALLOC_HOST_BUFFERS:
-    {
-      int i;
-      cmem_ioctl_t cmem_ioctl_arg;
-      cmem_ioctl_host_buf_info_t *const host_buf_info = &cmem_ioctl_arg.host_buf_info;
-
-      if (copy_from_user (&cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (cmem_ioctl_arg)))
-      {
-        return -EFAULT;
-      }
-
-      if(host_buf_info->type == 0) {
-        /* Consistent buffer allocation */
-        
-#ifndef PCI_ALLOC
-        /* All previous allocations removed */
-        host_buf_alloc_ptr = (persistent_mem_area.start_addr);
-#endif
-        if(!cmem_pers_host_buf_info)
         {
-          cmem_pers_host_buf_info = kmalloc(sizeof(cmem_host_buf_info_t), GFP_KERNEL);
-          if(cmem_pers_host_buf_info == NULL)
-          {
-            dev_err(cmem_dev, "kmalloc 1 failed ");
-            return(-1);
-          }
-          memset(cmem_pers_host_buf_info, 0, sizeof(cmem_host_buf_info_t));
-          cmem_pers_host_buf_info->buf_info 
-            = kmalloc((host_buf_info->num_buffers*sizeof(cmem_host_buf_entry_t)), GFP_KERNEL);
-          if(cmem_pers_host_buf_info->buf_info == NULL)
-          {
-            dev_err(cmem_dev, "kmalloc 2 failed ");
-            goto err_kmalloc2;
-          }
-          memset(cmem_pers_host_buf_info->buf_info, 0, 
-            (host_buf_info->num_buffers*sizeof(cmem_host_buf_entry_t)));
-        }
-        /* If already allocated , just return the already allocated addresses */
-        if(cmem_pers_host_buf_info->num_buffers != 0) 
-        {
-          if(host_buf_info->num_buffers > cmem_pers_host_buf_info->num_buffers) 
-          {
-            dev_err(cmem_dev, "Failed  number of buffer exceed from previous allocation; Previous %d, current %x\n", cmem_pers_host_buf_info->num_buffers, host_buf_info->num_buffers);
-            return(-1);
-          }
-          for(i =0; i < host_buf_info->num_buffers; i++) {
-            if( host_buf_info->buf_info[i].length >  cmem_pers_host_buf_info->buf_info[i].length)
+            int i;
+            cmem_ioctl_t cmem_ioctl_arg;
+            cmem_ioctl_host_buf_info_t *const host_buf_info = &cmem_ioctl_arg.host_buf_info;
+
+            if (copy_from_user (&cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (cmem_ioctl_arg)))
             {
-              dev_err(cmem_dev, "Failed  length mismatch with previous allocation %d\n", i);
-              return(-1);
+                return -EFAULT;
             }
-            host_buf_info->buf_info[i].virtAddr = cmem_pers_host_buf_info->buf_info[i].virtAddr;
-            host_buf_info->buf_info[i].dmaAddr = cmem_pers_host_buf_info->buf_info[i].dmaAddr;
-            dev_info(cmem_dev, 
-              "Returning previously allocated Persistent Host memory in Pcie space %d: Base Address: 0x%llx: Virtual Address 0x%p : Size 0x%x \n",
-              i, host_buf_info->buf_info[i].dmaAddr,
-              host_buf_info->buf_info[i].virtAddr, 
-              (unsigned int)host_buf_info->buf_info[i].length);
-          }
-          break;
+            /* Dynamic buffer allocation */
+            if(cmem_dyn_host_buf_info)
+            {
+                cmem_host_buf_entry_t *tmp_buf_infoP;
+
+                tmp_buf_infoP
+                = kmalloc(((cmem_dyn_host_buf_info->num_buffers+host_buf_info->num_buffers)
+                        *sizeof(cmem_host_buf_entry_t)), GFP_KERNEL);
+                if(tmp_buf_infoP == NULL)
+                {
+                    dev_err(cmem_dev, "kmalloc 5 failed ");
+                    return(-1);
+                }
+                memset(tmp_buf_infoP, 0,
+                        ((cmem_dyn_host_buf_info->num_buffers+host_buf_info->num_buffers)
+                                *sizeof(cmem_host_buf_entry_t)));
+                /* copy and free old buffer  list */
+                memcpy(tmp_buf_infoP, cmem_dyn_host_buf_info->buf_info,
+                        cmem_dyn_host_buf_info->num_buffers*sizeof(cmem_host_buf_entry_t));
+                kfree(cmem_dyn_host_buf_info->buf_info);
+                cmem_dyn_host_buf_info->buf_info = tmp_buf_infoP;
+
+            }
+            else
+            {
+                cmem_dyn_host_buf_info = kmalloc(sizeof(cmem_host_buf_info_t), GFP_KERNEL);
+                if(cmem_dyn_host_buf_info == NULL)
+                {
+                    dev_err(cmem_dev, "kmalloc 3 failed ");
+                    return(-1);
+                }
+
+                memset(cmem_dyn_host_buf_info, 0, sizeof(cmem_host_buf_info_t));
+                cmem_dyn_host_buf_info->buf_info
+                = kmalloc((host_buf_info->num_buffers*sizeof(cmem_host_buf_entry_t)), GFP_KERNEL);
+                if(cmem_dyn_host_buf_info->buf_info == NULL)
+                {
+                    dev_err(cmem_dev, "kmalloc 4 failed ");
+                    goto err_kmalloc4;
+                }
+                memset(cmem_dyn_host_buf_info->buf_info, 0,
+                        (host_buf_info->num_buffers*sizeof(cmem_host_buf_entry_t)));
+            }
+            for(i =0; i < host_buf_info->num_buffers; i++)
+            {
+                host_buf_info->buf_info[i].virtAddr = 0;
+                if((host_dyn_buf_alloc_ptr+host_buf_info->buf_info[i].length) >
+                (dynamic_mem_area.start_addr + dynamic_mem_area.size)) {
+                    host_buf_info->buf_info[i].dmaAddr = 0;
+                } else {
+                    host_buf_info->buf_info[i].dmaAddr = host_dyn_buf_alloc_ptr;
+                }
+
+                host_dyn_buf_alloc_ptr += host_buf_info->buf_info[i].length;
+
+                if(host_buf_info->buf_info[i].dmaAddr == 0 ) {
+                    dev_err(cmem_dev, "Failed allocation of Dynamic Host memory %d\n", i);
+
+                    return (-1);
+                } else {
+                    dev_info(cmem_dev,
+                            "Allocated Host memory in Pcie space %d: Base Address: 0x%llx: Virtual Address 0x%p : Size 0x%x \n",
+                            i, host_buf_info->buf_info[i].dmaAddr,
+                            host_buf_info->buf_info[i].virtAddr,
+                            (unsigned int)host_buf_info->buf_info[i].length);
+                }
+
+                /* Keep a local copy of this in driver */
+                cmem_dyn_host_buf_info->buf_info[cmem_dyn_host_buf_info->num_buffers] = host_buf_info->buf_info[i];
+                dev_info(cmem_dev, " Copied buffer %d, Base address: 0x%llx: Size 0x%zx \n",
+                        cmem_dyn_host_buf_info->num_buffers,  cmem_dyn_host_buf_info->buf_info[cmem_dyn_host_buf_info->num_buffers].dmaAddr,
+                        cmem_dyn_host_buf_info->buf_info[cmem_dyn_host_buf_info->num_buffers].length);
+                cmem_dyn_host_buf_info->num_buffers++;
+            }
+
+            if (copy_to_user ((cmem_ioctl_t *) arg, &cmem_ioctl_arg, sizeof (cmem_ioctl_arg)))
+            {
+                return -EFAULT;
+            }
         }
-        /* Do New allocation */
-        for(i =0; i < host_buf_info->num_buffers; i++) {
-#ifdef PCI_ALLOC 
-          host_buf_info->buf_info[i].virtAddr = (uint8_t *)dma_alloc_coherent(&ti667x_pci_dev[0]->dev,  host_buf_info->buf_info[i].length, (dma_addr_t *)&host_buf_info->buf_info[i].dmaAddr, GFP_KERNEL);
-#else
-          host_buf_info->buf_info[i].virtAddr = 0;
-          if((host_buf_alloc_ptr+host_buf_info->buf_info[i].length) > 
-            (persistent_mem_area.start_addr + persistent_mem_area.size)) {
-            host_buf_info->buf_info[i].dmaAddr = 0;
-          } else {
-            host_buf_info->buf_info[i].dmaAddr = host_buf_alloc_ptr;
-          }
-          host_buf_alloc_ptr += host_buf_info->buf_info[i].length;
-#endif
-          if(host_buf_info->buf_info[i].dmaAddr == 0 ) {
-#ifdef PCI_ALLOC 
-          dev_err(&ti667x_pci_dev[0]->dev, "Failed allocation of Persistent Host memory %d\n", i);
-#else
-          dev_err(cmem_dev, "Failed allocation of Persistent Host memory %d\n", i);
-#endif
-          return (-1);
-          } else {
-            dev_info(cmem_dev, 
-              "Allocated Persistent Host memory in Pcie space %d: Base Address: 0x%llx: Virtual Address 0x%p : Size 0x%x \n",
-              i, host_buf_info->buf_info[i].dmaAddr,
-              host_buf_info->buf_info[i].virtAddr, 
-              (unsigned int)host_buf_info->buf_info[i].length);
-          }
-          cmem_pers_host_buf_info->buf_info[i] = host_buf_info->buf_info[i];
-        }
-       /* Store number of buffers allocated */
-       cmem_pers_host_buf_info->num_buffers = host_buf_info->num_buffers;
-      } else {
-        /* Dynamic buffer allocation */
-        if(cmem_dyn_host_buf_info)
-        {
-          cmem_host_buf_entry_t *tmp_buf_infoP;
-
-          tmp_buf_infoP 
-            = kmalloc(((cmem_dyn_host_buf_info->num_buffers+host_buf_info->num_buffers)
-            *sizeof(cmem_host_buf_entry_t)), GFP_KERNEL);
-          if(tmp_buf_infoP == NULL)
-          {
-            dev_err(cmem_dev, "kmalloc 5 failed ");
-            return(-1);
-          }
-          memset(tmp_buf_infoP, 0, 
-            ((cmem_dyn_host_buf_info->num_buffers+host_buf_info->num_buffers)
-            *sizeof(cmem_host_buf_entry_t)));
-          /* copy and free old buffer  list */
-          memcpy(tmp_buf_infoP, cmem_dyn_host_buf_info->buf_info, 
-            cmem_dyn_host_buf_info->num_buffers*sizeof(cmem_host_buf_entry_t));
-          kfree(cmem_dyn_host_buf_info->buf_info);
-          cmem_dyn_host_buf_info->buf_info = tmp_buf_infoP;
-          
-        }
-        else
-        {
-          cmem_dyn_host_buf_info = kmalloc(sizeof(cmem_host_buf_info_t), GFP_KERNEL);
-          if(cmem_dyn_host_buf_info == NULL)
-          {
-            dev_err(cmem_dev, "kmalloc 3 failed ");
-            return(-1);
-          }
-
-          memset(cmem_dyn_host_buf_info, 0, sizeof(cmem_host_buf_info_t));
-          cmem_dyn_host_buf_info->buf_info
-            = kmalloc((host_buf_info->num_buffers*sizeof(cmem_host_buf_entry_t)), GFP_KERNEL);
-          if(cmem_dyn_host_buf_info->buf_info == NULL)
-          {
-            dev_err(cmem_dev, "kmalloc 4 failed ");
-            goto err_kmalloc4;
-          }
-           memset(cmem_dyn_host_buf_info->buf_info, 0, 
-            (host_buf_info->num_buffers*sizeof(cmem_host_buf_entry_t)));
-        }
-        for(i =0; i < host_buf_info->num_buffers; i++) 
-        {
-#ifdef PCI_ALLOC 
-          host_buf_info->buf_info[i].virtAddr = (uint8_t *)dma_alloc_coherent(&ti667x_pci_dev[0]->dev,  host_buf_info->buf_info[i].length, (dma_addr_t *)&host_buf_info->buf_info[i].dmaAddr, GFP_KERNEL);
-#else
-          host_buf_info->buf_info[i].virtAddr = 0;
-          if((host_dyn_buf_alloc_ptr+host_buf_info->buf_info[i].length) > 
-             (dynamic_mem_area.start_addr + dynamic_mem_area.size)) {
-            host_buf_info->buf_info[i].dmaAddr = 0;
-          } else {
-            host_buf_info->buf_info[i].dmaAddr = host_dyn_buf_alloc_ptr;
-          }
-
-          host_dyn_buf_alloc_ptr += host_buf_info->buf_info[i].length;
-          
-#endif
-          if(host_buf_info->buf_info[i].dmaAddr == 0 ) {
-#ifdef PCI_ALLOC 
-          dev_err(&ti667x_pci_dev[0]->dev, "Failed allocation of Dynamic Host memory %d\n", i);
-#else
-          dev_err(cmem_dev, "Failed allocation of Dynamic Host memory %d\n", i);
-
-#endif
-          return (-1);
-          } else {
-            dev_info(cmem_dev, 
-              "Allocated Host memory in Pcie space %d: Base Address: 0x%llx: Virtual Address 0x%p : Size 0x%x \n",
-              i, host_buf_info->buf_info[i].dmaAddr,
-              host_buf_info->buf_info[i].virtAddr, 
-              (unsigned int)host_buf_info->buf_info[i].length);
-          }
-
-          /* Keep a local copy of this in driver */
-          cmem_dyn_host_buf_info->buf_info[cmem_dyn_host_buf_info->num_buffers] = host_buf_info->buf_info[i];
-          dev_info(cmem_dev, " Copied buffer %d, Base address: 0x%llx: Size 0x%zx \n",
-             cmem_dyn_host_buf_info->num_buffers,  cmem_dyn_host_buf_info->buf_info[cmem_dyn_host_buf_info->num_buffers].dmaAddr, 
-             cmem_dyn_host_buf_info->buf_info[cmem_dyn_host_buf_info->num_buffers].length);
-	  cmem_dyn_host_buf_info->num_buffers++;
-        }
-      }
-
-      if (copy_to_user ((cmem_ioctl_t *) arg, &cmem_ioctl_arg, sizeof (cmem_ioctl_arg)))
-      {
-        return -EFAULT;
-      }
-    }
-    break;
-
-    case CMEM_IOCTL_GET_HOST_BUF_INFO:
-    {
-      cmem_host_buf_info_t *host_buf_info
-                = (cmem_host_buf_info_t *) arg;
-      if(cmem_pers_host_buf_info)
-      {
-        int i=0;
-        /* TODO: copy the buffer info */
-        *(host_buf_info) = *cmem_pers_host_buf_info;
-        memcpy(host_buf_info->buf_info, &cmem_pers_host_buf_info->buf_info[i],
-            CMEM_MAX_BUF_PER_ALLOC*sizeof(cmem_host_buf_entry_t));
-      }
-    }
-    break;
+        break;
 
     case  CMEM_IOCTL_FREE_HOST_BUFFERS:
-    {
-      /* TODO: Currently free clears off all buffers : 
-              May need to provide dynamic alloc and free later*/
-      cmem_ioctl_t cmem_ioctl_arg;
-      cmem_ioctl_host_buf_info_t *const host_buf_info = &cmem_ioctl_arg.host_buf_info;
-
-      if (copy_from_user (&cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (cmem_ioctl_arg)))
-      {
-        return -EFAULT;
-      }
-      if(host_buf_info->type == 0) {
-#ifdef PCI_ALLOC 
-        int i;
-     
-        if(cmem_pers_host_buf_info) {
-          for(i =0; i < cmem_pers_host_buf_info->num_buffers; i++) {
-            if(cmem_pers_host_buf_info->buf_info[i].dmaAddr != 0) {
-              dma_free_coherent(&ti667x_pci_dev[0]->dev, 
-                cmem_pers_host_buf_info->buf_info[i].length,
-                cmem_pers_host_buf_info->buf_info[i].virtAddr,
-                cmem_pers_host_buf_info->buf_info[i].dmaAddr);
-              dev_info(&ti667x_pci_dev[0]->dev,
-                "Freed  Host memory  %d: Base Address: 0x%llx Size : 0x%x\n", 
-                i, cmem_pers_host_buf_info->buf_info[i].dmaAddr, 
-                cmem_pers_host_buf_info->buf_info[i].length);
-            }
-          }
-        }
-#else
-        host_buf_alloc_ptr = (persistent_mem_area.start_addr);
-#endif
-     
-        if(cmem_pers_host_buf_info) {
-          if(cmem_pers_host_buf_info->buf_info)
-            kfree(cmem_pers_host_buf_info->buf_info);
-          kfree(cmem_pers_host_buf_info);
-          cmem_pers_host_buf_info = NULL;
-        }
-        dev_info(cmem_dev,
-          "Freed  all Persistent memory allocation \n");
-       
-      } else {
-#ifdef PCI_ALLOC 
-        int i;
-        if(cmem_dyn_host_buf_info) {
-          for(i =0; i < cmem_dyn_host_buf_info->num_buffers; i++) {
-            if(cmem_dyn_host_buf_info->buf_info[i].dmaAddr != 0) {
-              dma_free_coherent(&ti667x_pci_dev[0]->dev, 
-                cmem_dyn_host_buf_info->buf_info[i].length,
-                cmem_dyn_host_buf_info->buf_info[i].virtAddr,
-                cmem_dyn_host_buf_info->buf_info[i].dmaAddr);
-             dev_info(&ti667x_pci_dev[0]->dev,
-                "Freed Host memory  %d: Base Address: 0x%llx Size : 0x%x\n", 
-                i, cmem_dyn_host_buf_info->buf_info[i].dmaAddr, 
-                cmem_dyn_host_buf_info->buf_info[i].length);
-            }
-          }   
-        }    
-#else
-            host_dyn_buf_alloc_ptr = (dynamic_mem_area.start_addr);
-#endif
-        if(cmem_dyn_host_buf_info)
         {
-          if(cmem_dyn_host_buf_info->buf_info)
-            kfree(cmem_dyn_host_buf_info->buf_info);
-          kfree(cmem_dyn_host_buf_info);
-          cmem_dyn_host_buf_info = NULL;
-        }
-        dev_info(cmem_dev,
-          "Freed  all Dynamic memory allocation \n");
+            /* TODO: Currently free clears off all buffers :
+              May need to provide dynamic alloc and free later*/
+            cmem_ioctl_t cmem_ioctl_arg;
 
-      }
-    }
-    break;
+            if (copy_from_user (&cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (cmem_ioctl_arg)))
+            {
+                return -EFAULT;
+            }
+            host_dyn_buf_alloc_ptr = (dynamic_mem_area.start_addr);
+            if(cmem_dyn_host_buf_info)
+            {
+                if(cmem_dyn_host_buf_info->buf_info)
+                    kfree(cmem_dyn_host_buf_info->buf_info);
+                kfree(cmem_dyn_host_buf_info);
+                cmem_dyn_host_buf_info = NULL;
+            }
+            dev_info(cmem_dev,
+                    "Freed  all Dynamic memory allocation \n");
+
+        }
+        break;
 
     default:
-      ret = -1;
-    break;
-  }
-  return ret;
-err_kmalloc2: 
-  kfree(cmem_pers_host_buf_info);
-  cmem_pers_host_buf_info = NULL;
-  return(-1);
-err_kmalloc4: 
-  kfree(cmem_dyn_host_buf_info);
-  cmem_dyn_host_buf_info = NULL;
-  return(-1);
-
-
+        ret = -1;
+        break;
+    }
+    return ret;
+    err_kmalloc4:
+    kfree(cmem_dyn_host_buf_info);
+    cmem_dyn_host_buf_info = NULL;
+    return(-1);
 }
 
 /**
@@ -459,29 +235,29 @@ err_kmalloc4:
  */
 int cmem_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-  int ret = -EINVAL;
-  unsigned long sz = vma->vm_end - vma->vm_start;
-  unsigned long long addr = (unsigned long long)vma->vm_pgoff << PAGE_SHIFT;
+    int ret = -EINVAL;
+    unsigned long sz = vma->vm_end - vma->vm_start;
+    unsigned long long addr = (unsigned long long)vma->vm_pgoff << PAGE_SHIFT;
 
-  sscanf(filp->f_path.dentry->d_name.name, CMEM_MODFILE);
+    sscanf(filp->f_path.dentry->d_name.name, CMEM_MODFILE);
 
-  dev_info(cmem_dev, "Mapping %#lx bytes from address %#llx\n",
-    sz, addr);
+    dev_info(cmem_dev, "Mapping %#lx bytes from address %#llx\n",
+            sz, addr);
 
-//  vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+    //  vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
-  vma->vm_ops = &custom_vm_ops;
-  ret = remap_pfn_range(vma, vma->vm_start,
-          vma->vm_pgoff,
-          sz, vma->vm_page_prot);
+    vma->vm_ops = &custom_vm_ops;
+    ret = remap_pfn_range(vma, vma->vm_start,
+            vma->vm_pgoff,
+            sz, vma->vm_page_prot);
 
-  return ret;
+    return ret;
 }
 
 
 unsigned int cmem_poll(struct file *filp, poll_table *wait)
 {
-  return(0);
+    return(0);
 }
 
 /**
@@ -493,36 +269,12 @@ static const struct file_operations cmem_fops = {
     .unlocked_ioctl = cmem_ioctl,
     .poll           = cmem_poll
 };
-#if 0 
-/**
-* cmem_err_cleanup() - Error Cleanup DMA_MEm driver
-*
-*/
-
-static void cmem_err_cleanup(int ti667_dev_temp_num)
-{
-    int minor;
-    minor=0;
-    {
-        device_destroy(cmem_class, MKDEV(cmem_major,minor));
-    }
-    class_destroy(cmem_class);
-    cdev_del(&cmem_cdev);
-    unregister_chrdev_region(cmem_dev_id, 1);
-
-#if PCI_ALLOC /* TODO : Remove once make driver independant of PCI */
-    {
-        pci_dev_put(ti667x_pci_dev[minor]);
-    }
-#endif
-}
-#endif
 
 
 /**
  * @details Callback for parse_args() which extracts the value of reserved memory regions from memmap arguments.
  * The reserved memory regions are validated, and if valid used to update the reserved memory areas.
- * The first 2 memmap entries for reserved memory are used for dynamic_mem_area and persistent_mem_area.
+ * The first memmap entry for reserved is used for dynamic_mem_area
  * Any additional reserved memory areas are ignored.
  * @param[in] param The name of the parameter
  * @param[in] val The value of the parameter
@@ -534,7 +286,7 @@ static int cmem_boot_param_cb (char *param, char *val, const char *unused, void 
 {
     unsigned long long region_size, region_start; 
     reserved_mem_area_t *mem_area;
-    
+
     if (strcmp (param, "memmap") == 0)
     {
         while (val != NULL)
@@ -549,22 +301,18 @@ static int cmem_boot_param_cb (char *param, char *val, const char *unused, void 
             if (*val == '$')
             {
                 region_start = memparse (val + 1, &val);
-                
+
                 switch (num_memmap_reserved_areas)
                 {
                 case 0: 
                     mem_area = &dynamic_mem_area;
                     break;
-                    
-                case 1:
-                    mem_area = &persistent_mem_area;
-                    break;
-                    
+
                 default:
                     mem_area = NULL;
                     break;
                 }
-                
+
                 if (mem_area != NULL)
                 {
                     /* Sanity check that the memmap region extracted from the Kernel parameters is marked as RAM
@@ -592,7 +340,7 @@ static int cmem_boot_param_cb (char *param, char *val, const char *unused, void 
             val = seperator;
         }
     }
-    
+
     return 0;
 }
 
@@ -608,13 +356,13 @@ static int get_mem_areas_from_memmap_params (void)
     char *cmdline;
 
     char *(*parse_args_lookup)(const char *doing,
-             char *args,
-             const struct kernel_param *params,
-             unsigned num,
-             s16 min_level,
-             s16 max_level,
-             void *arg,
-             int (*unknown)(char *param, char *val,
+            char *args,
+            const struct kernel_param *params,
+            unsigned num,
+            s16 min_level,
+            s16 max_level,
+            void *arg,
+            int (*unknown)(char *param, char *val,
                     const char *doing, void *arg));
 
     /* Can't find an exported way of obtaining the Kernel command line, so lookup the saved_command_line variable */
@@ -624,7 +372,7 @@ static int get_mem_areas_from_memmap_params (void)
         pr_info(CMEM_DRVNAME " Failed to lookup saved_command_line\n");
         return -EINVAL;
     }
-    
+
     /* Lookup the function to parse arguments, to re-use the parsing code which handles escaping of parameters */
     parse_args_lookup = (void *) kallsyms_lookup_name ("parse_args");
     if ((parse_args_lookup == NULL) || ((*parse_args_lookup) == NULL))
@@ -632,16 +380,11 @@ static int get_mem_areas_from_memmap_params (void)
         pr_info(CMEM_DRVNAME " Failed to lookup parse_args\n");
         return -EINVAL;
     }
-    
+
     cmdline = kstrdup (*lookup_saved_command_line, GFP_KERNEL);
     parse_args_lookup("cmem params", cmdline, NULL, 0, 0, 0, NULL, &cmem_boot_param_cb);
     kfree (cmdline);
-    
-    if( persistent_mem_area.size == 0)
-    {
-        pr_info(CMEM_DRVNAME " Request mem region failed: persistent \n");
-        return -EINVAL;
-    }
+
     if (dynamic_mem_area.size == 0)
     {
         pr_info(CMEM_DRVNAME " Request mem region failed: dynamic \n");
@@ -688,8 +431,8 @@ static int __init cmem_init(void)
 
     ret = cdev_add(&cmem_cdev, MKDEV(cmem_major, cmem_minor), 1);
     if (ret) {
-      pr_err(CMEM_DRVNAME ": Failed creation of node\n");
-      goto err_dev_add;
+        pr_err(CMEM_DRVNAME ": Failed creation of node\n");
+        goto err_dev_add;
     }
 
     pr_info(CMEM_DRVNAME ": Major %d Minor %d assigned\n",
@@ -699,58 +442,34 @@ static int __init cmem_init(void)
     cmem_dev = device_create(cmem_class, NULL, MKDEV(cmem_major, cmem_minor),
             NULL, CMEM_MODFILE);
     if(cmem_dev < 0) {
-      pr_info(CMEM_DRVNAME ": Error creating device \n");
-      goto err_dev_create;
+        pr_info(CMEM_DRVNAME ": Error creating device \n");
+        goto err_dev_create;
     }
-   
+
     dev_info(cmem_dev, "Added device to the sys file system\n");
-    cmem_pers_host_buf_info = NULL;
     cmem_dyn_host_buf_info = NULL;
 
-#ifdef PCI_ALLOC 
-    if(0 != ti667x_ep_find_device()) {
-      pr_err(TI667X_PCIE_DRVNAME ": Unable to find PCI device\n");
-      goto pci_error_cleanup ;
-    }
-#else
-    if(persistent_mem_area.start_addr ==0)
-    {
-      pr_info(CMEM_DRVNAME " Request mem region failed: persistent \n");
-      goto persistent_reserve_fail_cleanup;
-    }
-    pr_info(CMEM_DRVNAME " Memory start Addr : 0x%llx Size: 0x%zx \n",
-      persistent_mem_area.start_addr, persistent_mem_area.size);
-    
     if( dynamic_mem_area.start_addr== 0)
     {
-      pr_info(CMEM_DRVNAME " Request mem region failed: dynamic \n");
-      goto dynamic_reserve_fail_cleanup;
+        pr_info(CMEM_DRVNAME " Request mem region failed: dynamic \n");
+        goto dynamic_reserve_fail_cleanup;
     }
     pr_info(CMEM_DRVNAME " Dynamic Memory start Addr : 0x%llx Size: 0x%zx\n",dynamic_mem_area.start_addr,
-      dynamic_mem_area.size);
-    host_buf_alloc_ptr =  (persistent_mem_area.start_addr);
+            dynamic_mem_area.size);
     host_dyn_buf_alloc_ptr = (dynamic_mem_area.start_addr);
-#endif
 
     spin_lock_init(&l_lock);
     init_waitqueue_head(&l_read_wait);
     return 0 ;
 
-#ifdef PCI_ALLOC /* TODO : Remove once make driver independant of PCI */
-pci_error_cleanup:
-#else
- 
-dynamic_reserve_fail_cleanup:
-  
-persistent_reserve_fail_cleanup:
-#endif
+    dynamic_reserve_fail_cleanup:
 
-err_dev_create:
+    err_dev_create:
     cdev_del(&cmem_cdev);
 
-err_dev_add:
+    err_dev_add:
     class_destroy(cmem_class);
-err_class_create:
+    err_class_create:
     unregister_chrdev_region(cmem_dev_id, 1);
 
     return(-1);
@@ -763,65 +482,20 @@ module_init(cmem_init);
 static void __exit cmem_cleanup(void)
 {
 
-  if(cmem_pers_host_buf_info)
-  {
-#ifdef PCI_ALLOC 
-  int i;
-  for(i =0; i < cmem_pers_host_buf_info->num_buffers; i++) {
-    if(cmem_pers_host_buf_info->buf_info[i].dmaAddr != 0) {
-      dma_free_coherent(&ti667x_pci_dev[0]->dev, 
-        cmem_pers_host_buf_info->buf_info[i].length,
-        cmem_pers_host_buf_info->buf_info[i].virtAddr,
-        cmem_pers_host_buf_info->buf_info[i].dmaAddr);
-      dev_info(&ti667x_pci_dev[0]->dev,
-        "Freed Host memory  %d: Base Address: 0x%x Size : 0x%x\n", 
-         i, (unsigned int)cmem_pers_host_buf_info->buf_info[i].dmaAddr, 
-         (unsigned int)cmem_pers_host_buf_info->buf_info[i].length);
-     }
-  }
-#else
-    host_buf_alloc_ptr = (persistent_mem_area.start_addr);
-#endif
-    if(cmem_pers_host_buf_info->buf_info)
-      kfree(cmem_pers_host_buf_info->buf_info);
-    kfree(cmem_pers_host_buf_info);
-  }
-  if(cmem_dyn_host_buf_info) 
-  {
-#ifdef PCI_ALLOC 
-  int i;
-  for(i =0; i < cmem_dyn_host_buf_info->num_buffers; i++) {
-    if(cmem_dyn_host_buf_info->buf_info[i].dmaAddr != 0) {
-      dma_free_coherent(&ti667x_pci_dev[0]->dev, 
-        cmem_dyn_host_buf_info->buf_info[i].length,
-        cmem_dyn_host_buf_info->buf_info[i].virtAddr,
-        cmem_dyn_host_buf_info->buf_info[i].dmaAddr);
-      dev_info(&ti667x_pci_dev[0]->dev,
-        "Freed Host memory  %d: Base Address: 0x%x Size : 0x%x\n", 
-         i, (unsigned int)cmem_dyn_host_buf_info->buf_info[i].dmaAddr, 
-         (unsigned int)cmem_dyn_host_buf_info->buf_info[i].length);
-     }
-  }
-#else
-    host_dyn_buf_alloc_ptr = (dynamic_mem_area.start_addr);
-#endif
-    if(cmem_dyn_host_buf_info->buf_info)
-      kfree(cmem_dyn_host_buf_info->buf_info);
-    kfree(cmem_dyn_host_buf_info);
-  }
-  /* Free memory reserved */
-   device_destroy(cmem_class, MKDEV(cmem_major,0));
-
-  class_destroy(cmem_class);
-  cdev_del(&cmem_cdev);
-  unregister_chrdev_region(cmem_dev_id, 1);
-#ifdef PCI_ALLOC  /* TODO : Remove once make driver independant of PCI */
+    if(cmem_dyn_host_buf_info)
     {
-        pci_dev_put(ti667x_pci_dev[0]);
+        host_dyn_buf_alloc_ptr = (dynamic_mem_area.start_addr);
+        if(cmem_dyn_host_buf_info->buf_info)
+            kfree(cmem_dyn_host_buf_info->buf_info);
+        kfree(cmem_dyn_host_buf_info);
     }
-  pr_info(TI667X_PCIE_DRVNAME ": Finished put device \n");
-#endif
-  pr_info(CMEM_DRVNAME "Module removed  \n");
+    /* Free memory reserved */
+    device_destroy(cmem_class, MKDEV(cmem_major,0));
+
+    class_destroy(cmem_class);
+    cdev_del(&cmem_cdev);
+    unregister_chrdev_region(cmem_dev_id, 1);
+    pr_info(CMEM_DRVNAME "Module removed  \n");
 }
 module_exit(cmem_cleanup);
 MODULE_LICENSE("Dual BSD/GPL");

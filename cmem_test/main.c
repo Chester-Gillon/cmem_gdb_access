@@ -27,7 +27,7 @@ int main (int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    rc = cmem_drv_alloc (NUM_BUFFERS, BUFFER_SIZE, HOST_BUF_TYPE_DYNAMIC, buffer_descs);
+    rc = cmem_drv_alloc (NUM_BUFFERS, BUFFER_SIZE, buffer_descs);
     if (rc != 0)
     {
         fprintf (stderr, "cmem_drv_alloc failed\n");
@@ -42,7 +42,7 @@ int main (int argc, char *argv[])
         printf ("%s", buffer_text);
     }
 
-    rc = cmem_drv_free (NUM_BUFFERS, HOST_BUF_TYPE_DYNAMIC, buffer_descs);
+    rc = cmem_drv_free (NUM_BUFFERS, buffer_descs);
     if (rc != 0)
     {
         fprintf (stderr, "cmem_drv_alloc failed\n");

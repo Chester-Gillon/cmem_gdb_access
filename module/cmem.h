@@ -68,14 +68,12 @@ typedef struct   _cmem_host_buf_entry_t {
 /* List of Buffers  */
 typedef struct _cmem_host_buf_info_t {
     unsigned int num_buffers;      /* Number of host buffers */
-    unsigned int type;             /* memory type 0; Persistent; 1; Dynamic */
     cmem_host_buf_entry_t *buf_info;
 } cmem_host_buf_info_t;
 
 /* List of Buffers  */
 typedef struct _cmem_ioctl_host_buf_info_t {
     unsigned int num_buffers;      /* Number of host buffers */
-    unsigned int type;             /* memory type 0; Persistent; 1; Dynamic */
     cmem_host_buf_entry_t buf_info[CMEM_MAX_BUF_PER_ALLOC];
 } cmem_ioctl_host_buf_info_t;
 
@@ -86,7 +84,6 @@ typedef struct _cmem_ioctl_t {
 
 /* IOCTLs defined for the application as well as driver */
 #define CMEM_IOCTL_ALLOC_HOST_BUFFERS  _IOWR('P', 1, unsigned int)
-#define CMEM_IOCTL_GET_HOST_BUF_INFO   _IOWR('P', 2, unsigned int)
 #define CMEM_IOCTL_FREE_HOST_BUFFERS   _IOWR('P', 3, unsigned int)
 
 #endif
