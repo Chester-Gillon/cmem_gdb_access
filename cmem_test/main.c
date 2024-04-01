@@ -20,6 +20,10 @@ int main (int argc, char *argv[])
     int buffer_index;
     char *buffer_text;
 
+    /* Any command line argument selected allocation of 32-bit address buffers */
+    const bool dma_capability_a64 = argc == 1;
+
+    printf ("Testing using DMA capability %s\n", dma_capability_a64 ? "A64" : "A32");
     rc = cmem_drv_open ();
     if (rc != 0)
     {
@@ -27,7 +31,7 @@ int main (int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    rc = cmem_drv_alloc (NUM_BUFFERS, BUFFER_SIZE, buffer_descs);
+    rc = cmem_drv_alloc (dma_capability_a64, NUM_BUFFERS, BUFFER_SIZE, buffer_descs);
     if (rc != 0)
     {
         fprintf (stderr, "cmem_drv_alloc failed\n");
@@ -45,7 +49,7 @@ int main (int argc, char *argv[])
     rc = cmem_drv_free (NUM_BUFFERS, buffer_descs);
     if (rc != 0)
     {
-        fprintf (stderr, "cmem_drv_alloc failed\n");
+        fprintf (stderr, "cmem_drv_free failed\n");
         return EXIT_FAILURE;
     }
 

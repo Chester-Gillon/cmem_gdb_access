@@ -52,7 +52,6 @@
 #include "cmem_drv.h"
 
 static int32_t dev_desc;
-static cmem_ioctl_t cmem_ioctl;
 
 static char* progname = "cmem_drv";
 
@@ -95,96 +94,111 @@ int32_t cmem_drv_close(void)
 #endif
     return(0);
 }
+
+
 /**
- *  @brief Function cmem_drv_alloc() Allocate contiguous host
-           memory; Any other contiguous memory allocation scheme can be used by
-           applications.
- *  @param[in]     num_of_buffers                  Number of buffers
- *  @param[in]     size of buffer                  Size of buffer
- *  @param[out]    buf_desc			   Array of allocated buffers
- *  @retval        0: for success, -1 for failure 
- *  @pre  
- *  @post 
+ * @brief Allocate physically contiguous host memory buffers, and map them into the address space of the calling process
+ * @pram[in] dma_capability_a64 Determines the type of physical addresses to allocate:
+ *                              - When false allocates physical addresses only in the first 4 GiB,
+ *                                for devices which can only address 32-bits
+ *                              - When true allocates addresses in any part of the physical address spaces,
+ *                                for devices which can address 64-bits.
+ * @param[in] dma_capability_a64 The number of buffers to allocate
+ * @param[in] size_of_buffer The size of each buffer in bytes
+ * @param[out] buf_desc The allocated buffers
+ * @return Zero indicates success, any other value failure
  */
-
-int32_t cmem_drv_alloc(uint32_t num_of_buffers, size_t size_of_buffer, cmem_host_buf_desc_t buf_desc[])
+int32_t cmem_drv_alloc (const bool dma_capability_a64,
+                        const uint32_t num_of_buffers, const size_t size_of_buffer,
+                        cmem_host_buf_desc_t buf_desc[const num_of_buffers])
 {
-    int i;
+    const unsigned long command = dma_capability_a64 ? CMEM_IOCTL_ALLOC_A64_HOST_BUFFERS : CMEM_IOCTL_ALLOC_A32_HOST_BUFFERS;
+    cmem_ioctl_t cmem_ioctl;
+    uint32_t buffer_index = 0;
+    uint32_t remaining_num_buffers = num_of_buffers;
+    int rc = 0;
 
+    while ((rc == 0) && (remaining_num_buffers > 0))
     {
-        int buf_index, ret_val;
-        uint32_t remaining_num_buffers, alloc_num_buffers;
+        const uint32_t alloc_num_buffers = (remaining_num_buffers < CMEM_MAX_BUF_PER_ALLOC) ?
+                remaining_num_buffers : CMEM_MAX_BUF_PER_ALLOC;
 
-        buf_index = 0;
-        remaining_num_buffers = num_of_buffers;
-        while (remaining_num_buffers)
+        /* Allocate physical address buffers */
+        memset (&cmem_ioctl, 0, sizeof (cmem_ioctl));
+        cmem_ioctl.host_buf_info.num_buffers = alloc_num_buffers;
+        for (uint32_t ioctl_index = 0; ioctl_index < alloc_num_buffers; ioctl_index++)
         {
-            alloc_num_buffers = (remaining_num_buffers > CMEM_MAX_BUF_PER_ALLOC) ?
-                    CMEM_MAX_BUF_PER_ALLOC : remaining_num_buffers;
-            cmem_ioctl.host_buf_info.num_buffers =alloc_num_buffers;
-
-            for(i=0; i< alloc_num_buffers; i++) {
-                cmem_ioctl.host_buf_info.buf_info[i].length = size_of_buffer;
-            }
-            ret_val = ioctl(dev_desc, CMEM_IOCTL_ALLOC_HOST_BUFFERS, &cmem_ioctl);
-            if(ret_val != 0) {
-                fprintf(stderr, "%s: ERROR: DMA MEM Buffer allocation failed\n", progname);
-                return(-1);
-            }
-
-            for(i=0; i< alloc_num_buffers; i++) {
-                buf_desc[buf_index+i].physAddr = cmem_ioctl.host_buf_info.buf_info[i].dmaAddr;
-#ifdef CMEM_VERBOSE
-                printf("Debug: mmap param length 0x%zx, Addr: 0x%llx \n", cmem_ioctl.host_buf_info.buf_info[i].length,
-                        (unsigned long long) cmem_ioctl.host_buf_info.buf_info[i].dmaAddr);
-#endif
-                buf_desc[buf_index+i].userAddr = mmap(0,
-                        cmem_ioctl.host_buf_info.buf_info[i].length,
-                        PROT_READ | PROT_WRITE,
-                        MAP_SHARED,
-                        dev_desc,
-                        (off_t) cmem_ioctl.host_buf_info.buf_info[i].dmaAddr);
-#ifdef CMEM_VERBOSE
-                printf("Buff num %d: Phys addr : 0x%llx User Addr: 0x%lx \n", buf_index, (unsigned long long ) buf_desc[buf_index+i].physAddr,
-                        (size_t)buf_desc[buf_index+i].userAddr );
-#endif
-                buf_desc[buf_index+i].length = cmem_ioctl.host_buf_info.buf_info[i].length;
-            }
-            buf_index += (int) alloc_num_buffers;
-            remaining_num_buffers-=alloc_num_buffers;
+            cmem_ioctl.host_buf_info.buf_info[ioctl_index].length = size_of_buffer;
         }
+        rc = ioctl (dev_desc, command, &cmem_ioctl);
+
+        /* Map the buffers into the process address space */
+        for (uint32_t ioctl_index = 0; (rc == 0) && (ioctl_index < alloc_num_buffers); ioctl_index++)
+        {
+#ifdef CMEM_VERBOSE
+            printf("Debug: mmap param length 0x%zx, Addr: 0x%lx \n", cmem_ioctl.host_buf_info.buf_info[ioctl_index].length,
+                    cmem_ioctl.host_buf_info.buf_info[ioctl_index].dma_address);
+#endif
+            errno = 0;
+            buf_desc[buffer_index].userAddr = mmap (NULL,
+                    cmem_ioctl.host_buf_info.buf_info[ioctl_index].length,
+                    PROT_READ | PROT_WRITE,
+                    MAP_SHARED,
+                    dev_desc,
+                    (off_t) cmem_ioctl.host_buf_info.buf_info[ioctl_index].dma_address);
+            if (buf_desc[buffer_index].userAddr == MAP_FAILED)
+            {
+                rc = errno;
+            }
+            buf_desc[buffer_index].physAddr = cmem_ioctl.host_buf_info.buf_info[ioctl_index].dma_address;
+            buf_desc[buffer_index].length = cmem_ioctl.host_buf_info.buf_info[ioctl_index].length;
+#ifdef CMEM_VERBOSE
+            printf("Buff num %d: Phys addr : 0x%lx User Addr: 0x%lx \n", buffer_index, buf_desc[buffer_index].physAddr,
+                    (uintptr_t) buf_desc[buffer_index].userAddr);
+#endif
+            buffer_index++;
+        }
+
+        remaining_num_buffers -= alloc_num_buffers;
     }
-    return(0);
+
+    return rc;
 }
+
+
 /**
- *  @brief Function cmem_drv_free() Free contiguous dma host
- *         memory; 
- *  @param[in]     num_of_buffers                  Number of buffers
- *  @param[out]    buf_desc			   Array of allocated buffers
- *  @retval        0: for success, -1 for failure 
- *  @pre  
- *  @post 
+ * @brief Free contiguous DMA host buffers
+ * @details This unmaps the host buffers from the process address space, and then free the physical address allocations.
+ * @param[in] num_of_buffers The number of buffers to free
+ * @param[in] buf_desc The array of buffers to free
+ * @return Zero indicates success, any other value failure
  */
-int32_t cmem_drv_free(uint32_t num_of_buffers, cmem_host_buf_desc_t buf_desc[])
+int32_t cmem_drv_free (const uint32_t num_of_buffers, const cmem_host_buf_desc_t buf_desc[const num_of_buffers])
 {
-    int i;
+    cmem_ioctl_t cmem_ioctl;
+    uint32_t buffer_index = 0;
+    uint32_t remaining_num_buffers = num_of_buffers;
+    int rc = 0;
 
+    while ((rc == 0) && (remaining_num_buffers > 0))
     {
-        int ret_val;
+        const uint32_t free_num_buffers = (remaining_num_buffers < CMEM_MAX_BUF_PER_ALLOC) ?
+                remaining_num_buffers : CMEM_MAX_BUF_PER_ALLOC;
 
-        cmem_ioctl.host_buf_info.num_buffers =num_of_buffers;
-
-        ret_val = ioctl(dev_desc, CMEM_IOCTL_FREE_HOST_BUFFERS, &cmem_ioctl);
-        if(ret_val != 0) {
-            fprintf(stderr, "%s: ERROR: DMA MEM Buffer Free failed\n", progname);
-            return(-1);
+        memset (&cmem_ioctl, 0, sizeof (cmem_ioctl));
+        cmem_ioctl.host_buf_info.num_buffers = free_num_buffers;
+        for (uint32_t ioctl_index = 0; (rc == 0) && (ioctl_index < free_num_buffers); ioctl_index++)
+        {
+            cmem_ioctl.host_buf_info.buf_info[ioctl_index].dma_address = buf_desc[buffer_index].physAddr;
+            cmem_ioctl.host_buf_info.buf_info[ioctl_index].length = buf_desc[buffer_index].length;
+            rc = munmap ((void *)buf_desc[buffer_index].physAddr, buf_desc[buffer_index].length);
+            buffer_index++;
         }
+        rc = ioctl (dev_desc, CMEM_IOCTL_FREE_HOST_BUFFERS, &cmem_ioctl);
 
-        for(i=0; i< num_of_buffers; i++) {
-            /* TODO: Add code to copy the buffer entries. right now this is not used */
-            /* Free frees all the memory */
-        }
+        remaining_num_buffers -= free_num_buffers;
     }
-    return(0);
+
+    return rc;
 }
 

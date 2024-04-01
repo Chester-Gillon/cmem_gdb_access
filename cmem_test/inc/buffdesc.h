@@ -40,34 +40,13 @@
 #ifndef _BUFFDESC_H
 #define _BUFFDESC_H
 #include <stdint.h>
-typedef struct   _cmem_host_buf_desc_t {
+typedef struct
+{
     uint64_t physAddr;            /* physical address ; also visible in the
                                      pci address space from root complex*/
     uint8_t *userAddr;            /* Host user space Virtual address */
     size_t length;              /* Length of host buffer */
-    void    *buffInfoHandle;      /* Handle to identify each buffer descriptor */
 } cmem_host_buf_desc_t;
-/**
- *  Frame descriptor describes the data contained in a number of Buffer descriptors 
- *  For example a data can be present in a list of 3 buffer descriptors.     
- * 
- *       Buffer 1         Buffer 2         Buffer 3   numBuffers = 3
- *      -------------       ---------       ----------
- *     |        |////|     |/////////|     |//////|   |     
- * ----|        |////|-----|/////////|-----|//////|   |
- *     |        |////|     |/////////|     |//////|   |
- *      -------------       ----------      ----------
- *     |<------>|<------------------------------->|
- * frameStartOffset        frameSize
- * 
-**/
-
-typedef struct   _cmem_host_frame_desc_t {
-    cmem_host_buf_desc_t  *bufDescP;   /* Buffer descriptor list */
-    uint32_t numBuffers;              /* Number of buffers */
-    uint32_t frameStartOffset;        /* Start offset of data in buffers  */
-    uint32_t frameSize;               /* Length of data in buffers */
-} cmem_host_frame_desc_t;
 
 #endif /* _BUFFDESC_H */
 

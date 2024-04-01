@@ -49,41 +49,36 @@
 #endif  /*  __KERNEL__  */
 /* Maximum number of buffers allocated per API call*/
 #define CMEM_MAX_BUF_PER_ALLOC 64
-/**
-* ti816x_bar_info - PCI Base Address Register information
-* @num: BAR register index - 0 to 5
-* @addr: For 'SET' operations, contains ti816x internal address to translate
-* @size: Size allocated for this BAR (only usd for GET operation)
-* this BAR access to. For 'GET'' operations, contains the (host) physical
-* address assigned to this BAR.
-*/
-/* Basic information about host buffer accessible by DSP through PCIE */
-typedef struct   _cmem_host_buf_entry_t {
-    uint64_t dmaAddr;                  /* PCIe address */
-    uint8_t *virtAddr;                  /* Host Virtual address */
-    size_t length;           /* Length of host buffer */
+
+/* Basic information about host buffer accessible through PCIe */
+typedef struct
+{
+    /* PCIe address */
+    uint64_t dma_address;
+    /* Length of host buffer */
+    size_t length;
 } cmem_host_buf_entry_t;
 
-
-/* List of Buffers  */
-typedef struct _cmem_host_buf_info_t {
-    unsigned int num_buffers;      /* Number of host buffers */
-    cmem_host_buf_entry_t *buf_info;
-} cmem_host_buf_info_t;
-
-/* List of Buffers  */
-typedef struct _cmem_ioctl_host_buf_info_t {
-    unsigned int num_buffers;      /* Number of host buffers */
+/* List of Buffers, to allocate or free */
+typedef struct
+{
+    /* Number of host buffers in the buf_info[] array */
+    uint32_t num_buffers;
     cmem_host_buf_entry_t buf_info[CMEM_MAX_BUF_PER_ALLOC];
 } cmem_ioctl_host_buf_info_t;
 
 /** Parameters used for calling IOCTL */
-typedef struct _cmem_ioctl_t {
-  cmem_ioctl_host_buf_info_t host_buf_info;
+typedef struct
+{
+    cmem_ioctl_host_buf_info_t host_buf_info;
 } cmem_ioctl_t;
 
-/* IOCTLs defined for the application as well as driver */
-#define CMEM_IOCTL_ALLOC_HOST_BUFFERS  _IOWR('P', 1, unsigned int)
-#define CMEM_IOCTL_FREE_HOST_BUFFERS   _IOWR('P', 3, unsigned int)
+/* IOCTLs defined for the application as well as driver.
+ * CMEM_IOCTL_ALLOC_A64_HOST_BUFFERS allocates buffers for DMA which supports 64-bit addressing.
+ * CMEM_IOCTL_ALLOC_A32_HOST_BUFFERS allocates buffers for DMA which only supports 32-bit addressing, and therefore
+ * only performs allocation for the first 4 GiB of memory. */
+#define CMEM_IOCTL_ALLOC_A64_HOST_BUFFERS  _IOWR('P', 1, cmem_ioctl_t)
+#define CMEM_IOCTL_ALLOC_A32_HOST_BUFFERS  _IOWR('P', 2, cmem_ioctl_t)
+#define CMEM_IOCTL_FREE_HOST_BUFFERS       _IOWR('P', 3, cmem_ioctl_t)
 
 #endif

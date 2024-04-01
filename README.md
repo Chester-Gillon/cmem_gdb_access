@@ -19,5 +19,4 @@ a string into each buffer. By viewing the buffer_text variable in the debugger, 
 
 TODO:
 1) The module code which obtains the reserved memory regions from the memmap Kernel command line uses kallsyms_lookup_name() to find private Kernel symbols by name. Is there a way to achieve the same functionality but only using exported symbols? A more portable way could be to get the load script to find the reserved memory regions and pass as parameters to the module.
-2) The ``CMEM_IOCTL_GET_HOST_BUF_INFO`` operation doesn't have a way of passing the number of buffers to the user space code to allow the user space code to allocate a suitable sized ``buf_info`` array to receive the results. Also, the code doesn't copy the ``buf_info`` array back to user space.
-3) Since ``CMEM_IOCTL_FREE_HOST_BUFFERS`` frees all buffers this isn't suitable for access by multiple processes. Also, would locks be needed to make re-entrant?
+2) The module code doesn't support munmap(). See https://stackoverflow.com/a/25124978/4207678 for a suggestion of how to handle a munmap(). Need to check which function to perform the reverse of remap_pfn_range(). Also, https://www.chiark.greenend.org.uk/doc/linux-doc-2.6.32/html/kernel-api/re178.html says "this is only safe if the mm semaphore is held when called" for remap_pfn_range(). Need to check if that is still true for later Kernel versions.

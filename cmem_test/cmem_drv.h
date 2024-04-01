@@ -39,55 +39,19 @@
 
 #ifndef _CMEM_DRV_H
 #define _CMEM_DRV_H
+
 #include <stdint.h>
+#include <stdbool.h>
 #include "inc/buffdesc.h"
 
 #define CMEM_VERBOSE
 
-/**
- *  @brief Function cmem_drv_open() Open the cmem device registered by 
- *                                  Kernel driver
- *  @param[in, out]     none
- *  @retval        0 for success, -1 for failure
- *  @pre  
- *  @post 
- */
 int32_t cmem_drv_open(void);
-/**
- *  @brief Function cmem_drv_close() Closes the cmem device
- *  @param[in, out]     none
- *  @retval        0 for success, -1 for failure
- *  @pre  
- *  @post 
- */
 int32_t cmem_drv_close(void);
-
-/**
- *  @brief Function cmem_drv_alloc() Allocate contiguous host
-           memory; Any other contiguous memory allocation scheme can be used by
-           applications.
- *  @param[in]     num_of_buffers     Number of buffers
- *  @param[in]     num_dsps           Number of dsp devices 
- *  @param[in]     size of buffer     Size of buffer
- *  @param[out]    buf_desc	      Array of allocated buffers
- *  @retval        0: for success, -1 for failure 
- *  @pre  
- *  @post 
- */
-int32_t cmem_drv_alloc(uint32_t num_of_buffers, size_t size_of_buffer, cmem_host_buf_desc_t buf_desc[]);
-/**
- *  @brief Function cmem_drv_free() Free contiguous dma host
- *         memory; 
- *  @param[in]     num_of_buffers                  Number of buffers
- *  @param[in]     num_dsps                        Number of dsp devices 
- *  @param[in]     size of buffer                  Size of buffer
- *  @param[in]     host_buf_type                   Host Buffer type static or dynamic
- *  @param[out]    buf_desc			   Array of allocated buffers
- *  @retval        0: for success, -1 for failure 
- *  @pre  
- *  @post 
- */
-int32_t cmem_drv_free(uint32_t num_of_buffers, cmem_host_buf_desc_t buf_desc[]);
+int32_t cmem_drv_alloc (const bool dma_capability_a64,
+                        const uint32_t num_of_buffers, const size_t size_of_buffer,
+                        cmem_host_buf_desc_t buf_desc[const num_of_buffers]);
+int32_t cmem_drv_free (const uint32_t num_of_buffers, const cmem_host_buf_desc_t buf_desc[const num_of_buffers]);
 
 #endif /* _CMEM_DRV_H */
 
