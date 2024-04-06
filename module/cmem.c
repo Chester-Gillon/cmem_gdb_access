@@ -100,7 +100,7 @@ static DEFINE_MUTEX (cmem_allocation_regions_lock);
 
 
 static struct vm_operations_struct custom_vm_ops = {
-    .access = generic_access_phys,
+    .access = generic_access_phys
 };
 
 
@@ -387,10 +387,17 @@ static void cmem_allocate_region (const unsigned int cmd,
 */
 static long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
-    cmem_ioctl_t cmem_ioctl_arg;
     int ret = 0;
     uint32_t buffer_index;
     uint32_t region_index;
+
+    /* cmem_ioctl_t is more than 1K in size, so allocate a local copy on the heap to avoid -Wframe-larger-than= warnings
+     * on some Kernels. */
+    cmem_ioctl_t *const cmem_ioctl_arg = kmalloc (sizeof (*cmem_ioctl_arg), GFP_KERNEL);;
+    if (cmem_ioctl_arg == NULL)
+    {
+        return -ENOMEM;
+    }
 
     mutex_lock (&cmem_allocation_regions_lock);
 
@@ -402,19 +409,19 @@ static long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             cmem_allocation_region_t allocated_region;
 
             /* Allocate the specified buffers */
-            if (copy_from_user (&cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (cmem_ioctl_arg)))
+            if (copy_from_user (cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (*cmem_ioctl_arg)))
             {
                 ret = -EFAULT;
             }
-            else if (cmem_ioctl_arg.host_buf_info.num_buffers > CMEM_MAX_BUF_PER_ALLOC)
+            else if (cmem_ioctl_arg->host_buf_info.num_buffers > CMEM_MAX_BUF_PER_ALLOC)
             {
                 ret = -EINVAL;
             }
             else
             {
-                for (buffer_index = 0; (ret == 0) && (buffer_index < cmem_ioctl_arg.host_buf_info.num_buffers); buffer_index++)
+                for (buffer_index = 0; (ret == 0) && (buffer_index < cmem_ioctl_arg->host_buf_info.num_buffers); buffer_index++)
                 {
-                    cmem_host_buf_entry_t *const buffer = &cmem_ioctl_arg.host_buf_info.buf_info[buffer_index];
+                    cmem_host_buf_entry_t *const buffer = &cmem_ioctl_arg->host_buf_info.buf_info[buffer_index];
 
                     cmem_allocate_region (cmd, &cmem_allocation_regions, buffer->length, &allocated_region);
                     if (allocated_region.allocated)
@@ -430,7 +437,7 @@ static long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                     }
                 }
 
-                if (copy_to_user ((cmem_ioctl_t *) arg, &cmem_ioctl_arg, sizeof (cmem_ioctl_arg)))
+                if (copy_to_user ((cmem_ioctl_t *) arg, cmem_ioctl_arg, sizeof (*cmem_ioctl_arg)))
                 {
                     ret = -EFAULT;
                 }
@@ -441,19 +448,19 @@ static long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     case CMEM_IOCTL_FREE_HOST_BUFFERS:
         {
             /* Free the specified buffers, checking the current process performed the allocations */
-            if (copy_from_user (&cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (cmem_ioctl_arg)))
+            if (copy_from_user (cmem_ioctl_arg, (cmem_ioctl_t *) arg, sizeof (*cmem_ioctl_arg)))
             {
                 ret = -EFAULT;
             }
-            else if (cmem_ioctl_arg.host_buf_info.num_buffers > CMEM_MAX_BUF_PER_ALLOC)
+            else if (cmem_ioctl_arg->host_buf_info.num_buffers > CMEM_MAX_BUF_PER_ALLOC)
             {
                 ret = -EINVAL;
             }
             else
             {
-                for (buffer_index = 0; (ret == 0) && (buffer_index < cmem_ioctl_arg.host_buf_info.num_buffers); buffer_index++)
+                for (buffer_index = 0; (ret == 0) && (buffer_index < cmem_ioctl_arg->host_buf_info.num_buffers); buffer_index++)
                 {
-                    const cmem_host_buf_entry_t *const buffer = &cmem_ioctl_arg.host_buf_info.buf_info[buffer_index];
+                    const cmem_host_buf_entry_t *const buffer = &cmem_ioctl_arg->host_buf_info.buf_info[buffer_index];
                     const cmem_allocation_region_t region_to_free =
                     {
                         .start = buffer->dma_address,
@@ -490,6 +497,7 @@ static long cmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     }
 
     mutex_unlock (&cmem_allocation_regions_lock);
+    kfree (cmem_ioctl_arg);
 
     return ret;
 }
@@ -535,6 +543,29 @@ int cmem_release (struct inode *const inodep, struct file *const filp)
 
 /**
  * cmem_mmap() - Provide userspace mapping for specified kernel memory
+ *
+ * As of Kernel 4.18.0 the remap_pfn_range() function is documented with:
+ *    "Note: this is only safe if the mm semaphore is held when called."
+ *
+ * Attempted to add calls to take the mm semaphore with:
+ *     down_write(&vma->vm_mm->mmap_sem);
+ *     ret = remap_pfn_range(vma, vma->vm_start,
+ *             vma->vm_pgoff,
+ *             sz, vma->vm_page_prot);
+ *     up_write(&vma->vm_mm->mmap_sem);
+ *
+ * However, when a user space process attempted to call memmep() hung with the the following backtrace:
+ *   [<0>] rwsem_down_write_slowpath
+ *   [<0>] cmem_mmap [cmem_dev]
+ *   [<0>] mmap_region
+ *   [<0>] do_mmap
+ *   [<0>] vm_mmap_pgoff
+ *   [<0>] ksys_mmap_pgoff
+ *   [<0>] do_syscall_64
+ *   [<0>] entry_SYSCALL_64_after_hwframe
+ *
+ * On investigation in https://stackoverflow.com/a/78285167/4207678, vm_mmap_pgoff() is taking the mm semaphore
+ * around the call to do_mmap() and therefore the mm semaphore is already held when this function is called.
  * @filp: File private data - ignored
  * @vma: User virtual memory area to map to
  */
@@ -543,8 +574,6 @@ static int cmem_mmap(struct file *const filp, struct vm_area_struct *const vma)
     int ret = -EINVAL;
     unsigned long sz = vma->vm_end - vma->vm_start;
     unsigned long long addr = (unsigned long long)vma->vm_pgoff << PAGE_SHIFT;
-
-    sscanf(filp->f_path.dentry->d_name.name, CMEM_MODFILE);
 
     dev_info(cmem_dev, "Mapping %#lx bytes from address %#llx for pid %d\n",
             sz, addr, task_pid_nr (current));

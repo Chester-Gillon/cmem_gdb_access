@@ -169,6 +169,8 @@ int32_t cmem_drv_alloc (const bool dma_capability_a64,
 /**
  * @brief Free contiguous DMA host buffers
  * @details This unmaps the host buffers from the process address space, and then free the physical address allocations.
+ *          Watching the output of /sys/kernel/debug/x86/pat_memtype_list as each munmap() is performed shows the
+ *          physical buffers with write-back mappings being removed.
  * @param[in] num_of_buffers The number of buffers to free
  * @param[in] buf_desc The array of buffers to free
  * @return Zero indicates success, any other value failure
@@ -191,7 +193,7 @@ int32_t cmem_drv_free (const uint32_t num_of_buffers, const cmem_host_buf_desc_t
         {
             cmem_ioctl.host_buf_info.buf_info[ioctl_index].dma_address = buf_desc[buffer_index].physAddr;
             cmem_ioctl.host_buf_info.buf_info[ioctl_index].length = buf_desc[buffer_index].length;
-            rc = munmap ((void *)buf_desc[buffer_index].physAddr, buf_desc[buffer_index].length);
+            rc = munmap ((void *)buf_desc[buffer_index].userAddr, buf_desc[buffer_index].length);
             buffer_index++;
         }
         rc = ioctl (dev_desc, CMEM_IOCTL_FREE_HOST_BUFFERS, &cmem_ioctl);
