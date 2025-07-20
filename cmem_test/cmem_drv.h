@@ -44,7 +44,7 @@
 #include <stdbool.h>
 #include "inc/buffdesc.h"
 
-#define CMEM_VERBOSE
+#undef CMEM_VERBOSE
 
 int32_t cmem_drv_open(void);
 int32_t cmem_drv_close(void);
